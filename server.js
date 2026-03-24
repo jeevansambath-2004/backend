@@ -40,6 +40,7 @@ app.use('/api/files', require('./routes/files'));
 app.use('/api/sprints', require('./routes/sprints'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/productivity', require('./routes/productivity'));
+app.use('/api/feedback', require('./routes/feedback'));
 
 // Health check
 app.get('/api/health', (req, res) => {
