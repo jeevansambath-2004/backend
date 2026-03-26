@@ -26,8 +26,9 @@ exports.getConversations = async (req, res) => {
 // @route   GET /api/messages/:conversationId
 exports.getMessages = async (req, res) => {
     try {
-        const messages = await Message.find({ conversation: req.params.conversationId })
+            const messages = await Message.find({ conversation: req.params.conversationId })
             .populate('sender', 'name email avatar')
+            .populate('attachment')
             .sort('createdAt');
 
         res.json({ success: true, data: messages });
@@ -40,10 +41,12 @@ exports.getMessages = async (req, res) => {
 // @route   POST /api/messages/:conversationId
 exports.sendMessage = async (req, res) => {
     try {
-        const { content } = req.body;
+        const { content, attachment, poll } = req.body;
 
         const message = await Message.create({
             content,
+            attachment: attachment || null,
+            poll: poll || null,
             sender: req.user.id,
             conversation: req.params.conversationId,
             readBy: [req.user.id]
@@ -56,7 +59,8 @@ exports.sendMessage = async (req, res) => {
         });
 
         const populatedMessage = await Message.findById(message._id)
-            .populate('sender', 'name email avatar');
+            .populate('sender', 'name email avatar')
+            .populate('attachment');
 
         res.status(201).json({ success: true, data: populatedMessage });
     } catch (error) {
@@ -68,7 +72,7 @@ exports.sendMessage = async (req, res) => {
 // @route   POST /api/messages/new
 exports.startConversation = async (req, res) => {
     try {
-        const { recipientId, content } = req.body;
+        const { recipientId, content, attachment, poll } = req.body;
 
         // Check if conversation exists
         let conversation = await Conversation.findOne({
@@ -84,6 +88,8 @@ exports.startConversation = async (req, res) => {
         // Create message
         const message = await Message.create({
             content,
+            attachment: attachment || null,
+            poll: poll || null,
             sender: req.user.id,
             conversation: conversation._id,
             readBy: [req.user.id]
@@ -194,6 +200,46 @@ exports.deleteMessage = async (req, res) => {
 
         await message.deleteOne();
         res.json({ success: true, message: 'Message deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// @desc    Vote in a message poll
+// @route   POST /api/messages/:messageId/vote
+exports.votePoll = async (req, res) => {
+    try {
+        const { optionId } = req.body;
+        const message = await Message.findById(req.params.messageId);
+
+        if (!message || !message.poll) {
+            return res.status(404).json({ message: 'Poll not found' });
+        }
+
+        const userId = req.user.id;
+
+        // Find the index of the selected option
+        const optionIndex = message.poll.options.findIndex(opt => opt._id.toString() === optionId);
+
+        if (optionIndex === -1) {
+            return res.status(404).json({ message: 'Poll option not found' });
+        }
+
+        // Check if user already voted in ANY option of this poll, and remove their vote if they did
+        message.poll.options.forEach(opt => {
+            opt.votes = opt.votes.filter(vote => vote.toString() !== userId);
+        });
+
+        // Add the new vote to the selected option
+        message.poll.options[optionIndex].votes.push(userId);
+
+        await message.save();
+
+        const populatedMessage = await Message.findById(message._id)
+            .populate('sender', 'name email avatar')
+            .populate('attachment');
+
+        res.json({ success: true, data: populatedMessage });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
